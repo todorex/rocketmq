@@ -16,6 +16,7 @@
  */
 package org.apache.rocketmq.namesrv;
 
+import org.apache.commons.lang3.time.DateUtils;
 import org.apache.rocketmq.common.namesrv.NamesrvConfig;
 import org.apache.rocketmq.remoting.netty.NettyServerConfig;
 import org.junit.After;
@@ -43,5 +44,17 @@ public class NameServerInstanceTest {
             nameSrvController.shutdown();
         }
         //maybe need to clean the file store. But we do not suggest deleting anything.
+    }
+
+    public static void main(String[] args) throws Exception {
+        NamesrvConfig namesrvConfig1 = new NamesrvConfig();
+        NettyServerConfig nettyServerConfig1 = new NettyServerConfig();
+        nettyServerConfig1.setListenPort(9876);
+        NamesrvController nameSrvController1 = new NamesrvController(namesrvConfig1, nettyServerConfig1);
+        nameSrvController1.initialize();
+        nameSrvController1.start();
+
+        // 不让主方法结束
+        Thread.sleep(DateUtils.MILLIS_PER_DAY);
     }
 }

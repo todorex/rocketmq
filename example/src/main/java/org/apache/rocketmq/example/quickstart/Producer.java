@@ -48,6 +48,9 @@ public class Producer {
         /*
          * Launch the instance.
          */
+
+        // 指明Namesrv
+        producer.setNamesrvAddr("127.0.0.1:9876");
         producer.start();
 
         for (int i = 0; i < 1000; i++) {
