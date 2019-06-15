@@ -56,20 +56,27 @@ public class MQFaultStrategy {
     }
 
     public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName) {
+        // 如果开启了延时容错
         if (this.sendLatencyFaultEnable) {
             try {
+                // 首先获取上次使用的Queue index+1，这个index是放在ThreadLocal下
+                // 实现了轮询的效果，但是在重试的时候是为了选择上一次发送的broker
                 int index = tpInfo.getSendWhichQueue().getAndIncrement();
                 for (int i = 0; i < tpInfo.getMessageQueueList().size(); i++) {
                     int pos = Math.abs(index++) % tpInfo.getMessageQueueList().size();
                     if (pos < 0)
                         pos = 0;
+                    // 找到index对应的queue
                     MessageQueue mq = tpInfo.getMessageQueueList().get(pos);
+                    // 如果queue对应的broker可用（根据faultItemTable判断），则使用该broker
                     if (latencyFaultTolerance.isAvailable(mq.getBrokerName())) {
+                        // 第一次发送或者是重试，直接选
                         if (null == lastBrokerName || mq.getBrokerName().equals(lastBrokerName))
                             return mq;
                     }
                 }
-
+                // 如果没找个合适的broker，则从所有的broker中选择一个相对合适的，并且是可写的broker
+                // 相对合适是指 可用/延迟低/上次不可用时间早
                 final String notBestBroker = latencyFaultTolerance.pickOneAtLeast();
                 int writeQueueNums = tpInfo.getQueueIdByBroker(notBestBroker);
                 if (writeQueueNums > 0) {
@@ -88,7 +95,7 @@ public class MQFaultStrategy {
 
             return tpInfo.selectOneMessageQueue();
         }
-
+        // 未开启延时容错，直接按顺序选下一个
         return tpInfo.selectOneMessageQueue(lastBrokerName);
     }
 
