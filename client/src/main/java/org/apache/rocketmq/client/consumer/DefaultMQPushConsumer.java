@@ -275,7 +275,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     public DefaultMQPushConsumer(final String consumerGroup, RPCHook rpcHook,
         AllocateMessageQueueStrategy allocateMessageQueueStrategy) {
         this.consumerGroup = consumerGroup;
+        // 默认平均分配
         this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+        // 构造实际类
         defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
     }
 
@@ -578,6 +580,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     @Override
     public void start() throws MQClientException {
+        // 实质defaultMQPushConsumerImpl启动
         this.defaultMQPushConsumerImpl.start();
         if (null != traceDispatcher) {
             try {

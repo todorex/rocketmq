@@ -245,8 +245,8 @@ public class MQClientInstance {
                     // Start rebalance service
                     // 开启负载均衡服务
                     this.rebalanceService.start();
-                    // Start push service
-                    // 开启Producer
+                    // 初始化一个自用的producer，`CLIENT_INNER_PRODUCER`
+                    // 主要用于在消费失败或者超时后发送重试的消息给broker
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     // 更改client状态

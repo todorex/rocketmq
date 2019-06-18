@@ -92,6 +92,7 @@ public class PullMessageService extends ServiceThread {
 
         while (!this.isStopped()) {
             try {
+                // 取pull request 进行拉取
                 PullRequest pullRequest = this.pullRequestQueue.take();
                 this.pullMessage(pullRequest);
             } catch (InterruptedException ignored) {
