@@ -208,7 +208,7 @@ public class DefaultMessageStore implements MessageStore {
      * @throws Exception
      */
     public void start() throws Exception {
-
+        // 构造文件锁，保证磁盘上的文件只会被一个messageStore读写
         lock = lockFile.getChannel().tryLock(0, 1, false);
         if (lock == null || lock.isShared() || !lock.isValid()) {
             throw new RuntimeException("Lock failed,MQ already started");
@@ -216,25 +216,29 @@ public class DefaultMessageStore implements MessageStore {
 
         lockFile.getChannel().write(ByteBuffer.wrap("lock".getBytes()));
         lockFile.getChannel().force(true);
-
+        // 启动FlushConsumeQueueService(继承ServiceThread，是个单线程)
+        // 定时将consumeQueue文件的数据刷新到磁盘，周期由参数flushIntervalConsumeQueue设置，默认1秒
         this.flushConsumeQueueService.start();
+        // 启动CommitLog
         this.commitLog.start();
+        // 消息存储指标统计服务，RT，TPS等指标，admin可以用
         this.storeStatsService.start();
-
+        // 针对master，启动延时消息调度服务
         if (this.scheduleMessageService != null && SLAVE != messageStoreConfig.getBrokerRole()) {
             this.scheduleMessageService.start();
         }
-
+        // 启动ReputMessageService，该服务负责将CommitLog中的消息offset记录到cosumeQueue文件中
         if (this.getMessageStoreConfig().isDuplicationEnable()) {
             this.reputMessageService.setReputFromOffset(this.commitLog.getConfirmOffset());
         } else {
             this.reputMessageService.setReputFromOffset(this.commitLog.getMaxOffset());
         }
         this.reputMessageService.start();
-
+        // 启动HAService，数据主从同步的服务
         this.haService.start();
-
+        // 对于新的broker，初始化文件存储的目录
         this.createTempFile();
+        // 启动定时任务
         this.addScheduleTask();
         this.shutdown = false;
     }
@@ -307,7 +311,7 @@ public class DefaultMessageStore implements MessageStore {
             log.warn("message store has shutdown, so putMessage is forbidden");
             return new PutMessageResult(PutMessageStatus.SERVICE_NOT_AVAILABLE, null);
         }
-
+        // SLAVE不接收消息写入
         if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
             long value = this.printTimes.getAndIncrement();
             if ((value % 50000) == 0) {
@@ -343,14 +347,16 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         long beginTime = this.getSystemClock().now();
+        // 消息放入commitLog中
         PutMessageResult result = this.commitLog.putMessage(msg);
 
         long eclipseTime = this.getSystemClock().now() - beginTime;
         if (eclipseTime > 500) {
             log.warn("putMessage not in lock eclipse time(ms)={}, bodyLength={}", eclipseTime, msg.getBody().length);
         }
+        // 收集消息store时间
         this.storeStatsService.setPutMessageEntireTimeMax(eclipseTime);
-
+        // 记录失败次数
         if (null == result || !result.isOk()) {
             this.storeStatsService.getPutMessageFailedTimes().incrementAndGet();
         }
@@ -1169,21 +1175,22 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void addScheduleTask() {
-
+        // 定时清理过期的commitLog、cosumeQueue数据文件
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
                 DefaultMessageStore.this.cleanFilesPeriodically();
             }
         }, 1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
-
+        // 定时自检commitLog和consumerQueue文件，校验文件是否完整。主要用于监控，不会做修复文件的动作
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
                 DefaultMessageStore.this.checkSelf();
             }
         }, 1, 10, TimeUnit.MINUTES);
-
+        // 定时检查commitLog的Lock时长(因为在write或者flush时侯会lock)
+        // 如果lock的时间过长，则打印jvm堆栈，用于监控。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
