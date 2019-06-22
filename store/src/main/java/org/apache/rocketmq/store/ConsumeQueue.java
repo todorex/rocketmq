@@ -376,11 +376,15 @@ public class ConsumeQueue {
     }
 
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
+        // 写入重试次数，最多30次
         final int maxRetries = 30;
+        // 判断CQ是否是可写的
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
+            // 拿到消息的Tag
             long tagsCode = request.getTagsCode();
             if (isExtWriteEnable()) {
+                // 如果需要写ext文件，则将消息的tagsCode写入，用于消息过滤，后面有机会再说
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 cqExtUnit.setFilterBitMap(request.getBitMap());
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
@@ -394,6 +398,7 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            // 写入CQ文件
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
@@ -423,15 +428,16 @@ public class ConsumeQueue {
         if (offset <= this.maxPhysicOffset) {
             return true;
         }
-
+        // 结构可以参考数据结构中图
         this.byteBufferIndex.flip();
+        // 一个CQUnit的大小是固定的20字节
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
         this.byteBufferIndex.putInt(size);
         this.byteBufferIndex.putLong(tagsCode);
 
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
-
+        // 获取最后一个MappedFile, 没有就创建
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
@@ -465,6 +471,7 @@ public class ConsumeQueue {
                 }
             }
             this.maxPhysicOffset = offset;
+            // CQUnit写入文件中, 使用filechannel写
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;

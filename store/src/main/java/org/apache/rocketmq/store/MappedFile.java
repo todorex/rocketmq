@@ -201,11 +201,16 @@ public class MappedFile extends ReferenceResource {
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
-        // 获取当前的write position
+        // 获取当前的write position，用了原子计数器AtomicInteger
         int currentPos = this.wrotePosition.get();
 
         if (currentPos < this.fileSize) {
-            // 生成buffer切片
+            // 获得NIO的BytBuffer，从writeBuffer或者mappedByteBuffer，这里就利用了零拷贝
+            // 如果是writeBuffer，属于异步
+            // CommitLog启动的时候初始化一块内存池(通过ByteBuffer申请的堆外内存)
+            // 消息数据首先写入内存池中，然后后台有个线程定时将内存池中的数据commit到FileChannel中
+            // 如果是mappedByteBuffer，属于同步
+            // 在写入文件时，从FileChannel获取直接内存映射，收到消息后，将数据写入到这块内存中，内存和物理文件的数据交互由操作系统负责
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result = null;

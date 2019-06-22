@@ -90,22 +90,25 @@ public class IndexFile {
     }
 
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        // 判断indexFile是否已满，已满返回失败
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+            // 计算key的hashCode(非负)，调用的java String的hashcode方法
             int keyHash = indexKeyHashMethod(key);
+            // 计算slot位置（第几个）
             int slotPos = keyHash % this.hashSlotNum;
+            // 计算slot的数据存储位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
 
             try {
-
-                // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
-                // false);
+                // 之前说过slot+index类似一个hashmap，slot类似于hashmap的数组
+                // 如果存在hash冲突，获取这个slot存的前一个index的计数，如果没有则值为0
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
                 }
-
+                // 计算当前msg的存储时间和第一条msg相差秒数
                 long timeDiff = storeTimestamp - this.indexHeader.getBeginTimestamp();
 
                 timeDiff = timeDiff / 1000;
@@ -117,23 +120,23 @@ public class IndexFile {
                 } else if (timeDiff < 0) {
                     timeDiff = 0;
                 }
-
+                // 获取该条index实际存储position
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
-
+                // 生成一个index的unit内容(看图)
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
-
+                // 更新slot中的值为本条消息的index(因为rocketmq觉得新消息被查询的机会更大)
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
-
+                // 如果是第一条消息，更新header中的起始offset和起始时间
                 if (this.indexHeader.getIndexCount() <= 1) {
                     this.indexHeader.setBeginPhyOffset(phyOffset);
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
-
+                // 更新header中的计数
                 this.indexHeader.incHashSlotCount();
                 this.indexHeader.incIndexCount();
                 this.indexHeader.setEndPhyOffset(phyOffset);
