@@ -104,6 +104,7 @@ public abstract class ServiceThread implements Runnable {
     }
 
     protected void waitForRunning(long interval) {
+        // 如果被通知了，就不等了
         if (hasNotified.compareAndSet(true, false)) {
             this.onWaitEnd();
             return;
@@ -111,7 +112,7 @@ public abstract class ServiceThread implements Runnable {
 
         //entry to wait
         waitPoint.reset();
-
+        // 不然，就等待一段时间
         try {
             waitPoint.await(interval, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {

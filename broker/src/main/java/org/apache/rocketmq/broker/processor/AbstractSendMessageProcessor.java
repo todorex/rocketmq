@@ -178,6 +178,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
 
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
+        // 如果topic不存在
         if (null == topicConfig) {
             int topicSysFlag = 0;
             if (requestHeader.isUnitMode()) {
@@ -189,6 +190,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             }
 
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
+            // 创建Topic
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),
                 requestHeader.getDefaultTopic(),

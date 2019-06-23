@@ -67,6 +67,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         SendMessageContext mqtraceContext;
         switch (request.getCode()) {
             case RequestCode.CONSUMER_SEND_MSG_BACK:
+                // RETRY消息
                 return this.consumerSendMsgBack(ctx, request);
             default:
                 SendMessageRequestHeader requestHeader = parseRequestHeader(request);
@@ -79,8 +80,10 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
                 RemotingCommand response;
                 if (requestHeader.isBatch()) {
+                    // 批量发送
                     response = this.sendBatchMessage(ctx, request, mqtraceContext, requestHeader);
                 } else {
+                    // 单条消息
                     response = this.sendMessage(ctx, request, mqtraceContext, requestHeader);
                 }
 
@@ -133,7 +136,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             response.setRemark(null);
             return response;
         }
-
+        // 获得重试队列Topic和queue
         String newTopic = MixAll.getRetryTopic(requestHeader.getGroup());
         int queueIdInt = Math.abs(this.random.nextInt() % 99999999) % subscriptionGroupConfig.getRetryQueueNums();
 
@@ -177,7 +180,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         if (request.getVersion() >= MQVersion.Version.V3_4_9.ordinal()) {
             maxReconsumeTimes = requestHeader.getMaxReconsumeTimes();
         }
-
+        // 如果大于重试次数，则放入DLQ死信队列
         if (msgExt.getReconsumeTimes() >= maxReconsumeTimes
             || delayLevel < 0) {
             newTopic = MixAll.getDLQTopic(requestHeader.getGroup());
@@ -217,7 +220,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         String originMsgId = MessageAccessor.getOriginMessageId(msgExt);
         MessageAccessor.setOriginMessageId(msgInner, UtilAll.isBlank(originMsgId) ? msgExt.getMsgId() : originMsgId);
-
+        // 存储消息
         PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {
@@ -253,6 +256,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                                       MessageExt msg, TopicConfig topicConfig) {
         String newTopic = requestHeader.getTopic();
         if (null != newTopic && newTopic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+            // 查看Consumer group是否存在
             String groupName = newTopic.substring(MixAll.RETRY_GROUP_TOPIC_PREFIX.length());
             SubscriptionGroupConfig subscriptionGroupConfig =
                 this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(groupName);
@@ -262,14 +266,17 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                     "subscription group not exist, " + groupName + " " + FAQUrl.suggestTodo(FAQUrl.SUBSCRIPTION_GROUP_NOT_EXIST));
                 return false;
             }
-
+            // 获得最大重试次数，默认最大16次
             int maxReconsumeTimes = subscriptionGroupConfig.getRetryMaxTimes();
             if (request.getVersion() >= MQVersion.Version.V3_4_9.ordinal()) {
                 maxReconsumeTimes = requestHeader.getMaxReconsumeTimes();
             }
             int reconsumeTimes = requestHeader.getReconsumeTimes() == null ? 0 : requestHeader.getReconsumeTimes();
+            // 如果超过最大重发次数，尝试创建DLQ（Dead Letter Queue）死信队列
             if (reconsumeTimes >= maxReconsumeTimes) {
+                // 创建新Topic %DLQ% + group
                 newTopic = MixAll.getDLQTopic(groupName);
+                // 默认为1
                 int queueIdInt = Math.abs(this.random.nextInt() % 99999999) % DLQ_NUMS_PER_GROUP;
                 topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(newTopic,
                     DLQ_NUMS_PER_GROUP,
@@ -296,9 +303,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                                         final RemotingCommand request,
                                         final SendMessageContext sendMessageContext,
                                         final SendMessageRequestHeader requestHeader) throws RemotingCommandException {
-        // 构建response
         final RemotingCommand response = RemotingCommand.createResponseCommand(SendMessageResponseHeader.class);
-        // 设置response header
         final SendMessageResponseHeader responseHeader = (SendMessageResponseHeader)response.readCustomHeader();
 
         response.setOpaque(request.getOpaque());
@@ -335,13 +340,11 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(requestHeader.getTopic());
         msgInner.setQueueId(queueIdInt);
-        // 对于RETRY消息，
-        // 1. 判断是否consumer还存在，等待定时任务重发
-        // 2. 如果超过最大重发次数（默认16次），尝试创建DLQ死信队列，并将topic设置成DeadQueue,消息将被存入死信队列
+        // 对于RETRY消息的一些处理
         if (!handleRetryAndDLQ(requestHeader, response, request, msgInner, topicConfig)) {
             return response;
         }
-
+        // 转化消息为MessageExtBrokerInner
         msgInner.setBody(body);
         msgInner.setFlag(requestHeader.getFlag());
         MessageAccessor.setProperties(msgInner, MessageDecoder.string2messageProperties(requestHeader.getProperties()));
@@ -364,7 +367,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             }
             putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
         } else {
-            // 调用MessageStore接口存储消息
+            // 调用MessageStore接口存储消息，这里就到我们之前分析的消息存储哪里了
             putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         }
         // 根据存储结果设置repsonse状态，更新broker统计信息，成功则回复producer，更新context上下文
